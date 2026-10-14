@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>太鼓譜面メーカー</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="app-header">
+    <h1><span class="logo-don"></span>太鼓譜面メーカー</h1>
+    <p>音声から譜面を自動生成して、手で仕上げる。TJA 形式で書き出し。</p>
+  </header>
+
+  <main>
+    <!-- 1. 音声の読み込みと自動生成 -->
+    <section class="panel" id="source-panel">
+      <h2><span class="step">1</span>音声を読み込んで自動生成</h2>
+      <div class="source-grid">
+        <label class="dropzone" id="dropzone">
+          <input type="file" id="audio-input" accept="audio/*,.ogg,.mp3,.wav,.m4a,.flac" hidden>
+          <strong>音声ファイルをドロップ</strong>
+          <span>またはクリックして選択（mp3 / ogg / wav など）</span>
+          <span class="file-name" id="audio-name">未選択</span>
+        </label>
+
+        <div class="analysis-options">
+          <label>難易度プリセット
+            <select id="opt-preset">
+              <option value="easy">かんたん（4分）</option>
+              <option value="normal">ふつう（8分）</option>
+              <option value="hard">むずかしい（16分）</option>
+              <option value="oni" selected>おに（16分＋3連）</option>
+            </select>
+          </label>
+          <label>感度 <output id="opt-sensitivity-out"></output>
+            <input type="range" id="opt-sensitivity" min="0" max="1" step="0.05">
+          </label>
+          <label>グリッド
+            <select id="opt-grid">
+              <option value="1">4分</option>
+              <option value="2">8分</option>
+              <option value="4">16分</option>
+              <option value="4t">16分＋3連</option>
+              <option value="8">32分</option>
+            </select>
+          </label>
+          <label>最小間隔
+            <select id="opt-gap">
+              <option value="48">4分</option>
+              <option value="24">8分</option>
+              <option value="16">8分3連</option>
+              <option value="12">16分</option>
+              <option value="8">16分3連</option>
+              <option value="6">32分</option>
+            </select>
+          </label>
+          <label>ドンの割合 <output id="opt-don-out"></output>
+            <input type="range" id="opt-don" min="0" max="1" step="0.05" value="0.6">
+          </label>
+          <label>大音符の割合 <output id="opt-big-out"></output>
+            <input type="range" id="opt-big" min="0" max="0.2" step="0.01">
+          </label>
+          <label>BPM 指定
+            <input type="number" id="opt-bpm" min="30" max="400" step="0.01" placeholder="自動">
+          </label>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button class="primary" id="analyze-btn" disabled>自動で譜面を作る</button>
+        <button id="requantize-btn" disabled title="検出済みの音から、現在の BPM・オフセット・設定で譜面を作り直します">現在の BPM/オフセットで作り直す</button>
+        <progress id="analyze-progress" max="1" value="0" hidden></progress>
+      </div>
+      <div class="analysis-result" id="analysis-result" hidden>
+        推定 BPM <strong id="result-bpm"></strong>
+        <span class="candidates">候補: <span id="result-candidates"></span></span>
+        <button class="small" id="bpm-double">BPM×2</button>
+        <button class="small" id="bpm-half">BPM÷2</button>
+      </div>
+    </section>
+
+    <!-- 2. エディタ -->
+    <section class="panel" id="editor-panel">
+      <h2><span class="step">2</span>譜面を編集</h2>
+      <div class="toolbar" id="toolbar">
+        <div class="tool-group" role="group" aria-label="ツール">
+          <button class="tool" data-tool="select" title="選択 (V)">選択</button>
+          <button class="tool note-don" data-tool="1" title="ドン (1)">ドン</button>
+          <button class="tool note-ka" data-tool="2" title="カッ (2)">カッ</button>
+          <button class="tool note-don big" data-tool="3" title="大ドン (3)">大ドン</button>
+          <button class="tool note-ka big" data-tool="4" title="大カッ (4)">大カッ</button>
+          <button class="tool note-roll" data-tool="5" title="連打 (5)">連打</button>
+          <button class="tool note-roll big" data-tool="6" title="大連打 (6)">大連打</button>
+          <button class="tool" data-tool="eraser" title="消しゴム (E)">消しゴム</button>
+        </div>
+        <label class="inline">スナップ
+          <select id="snap">
+            <option value="48">4分</option>
+            <option value="24">8分</option>
+            <option value="16">12分(3連)</option>
+            <option value="12" selected>16分</option>
+            <option value="8">24分(3連)</option>
+            <option value="6">32分</option>
+          </select>
+        </label>
+        <div class="tool-group">
+          <button id="zoom-out" title="縮小 (-)">－</button>
+          <button id="zoom-in" title="拡大 (+)">＋</button>
+        </div>
+        <div class="tool-group">
+          <button id="undo" title="元に戻す (Ctrl+Z)">↶</button>
+          <button id="redo" title="やり直す (Ctrl+Y)">↷</button>
+        </div>
+        <label class="inline"><input type="checkbox" id="show-onsets" checked>検出音を表示</label>
+      </div>
+
+      <div class="canvas-wrap"><canvas id="editor-canvas"></canvas></div>
+
+      <div class="transport">
+        <button class="primary" id="play-btn" title="再生/停止 (Space)">▶ 再生</button>
+        <button id="rewind-btn" title="先頭へ (Home)">⏮</button>
+        <span class="time" id="time-display">0:00.000</span>
+        <label class="inline">速度
+          <select id="rate">
+            <option value="0.5">0.5×</option>
+            <option value="0.75">0.75×</option>
+            <option value="1" selected>1×</option>
+          </select>
+        </label>
+        <label class="inline">曲 <input type="range" id="music-vol" min="0" max="1" step="0.05" value="0.8"></label>
+        <label class="inline">効果音 <input type="range" id="se-vol" min="0" max="1" step="0.05" value="0.7"></label>
+        <label class="inline"><input type="checkbox" id="hit-sounds" checked>ヒット音</label>
+        <label class="inline"><input type="checkbox" id="metronome">メトロノーム</label>
+        <label class="inline"><input type="checkbox" id="follow" checked>追従</label>
+        <span class="spacer"></span>
+        <button id="record-btn" class="record" title="再生中に F/J でドン、D/K でカッを打ち込みます">● リアルタイム入力</button>
+        <label class="inline" title="打鍵が遅れて記録される場合に補正します">入力補正 <input type="number" id="input-offset" value="0" step="5" style="width:4.5em">ms</label>
+      </div>
+
+      <div class="stats" id="stats"></div>
+    </section>
+
+    <!-- 3. 曲情報と書き出し -->
+    <section class="panel" id="meta-panel">
+      <h2><span class="step">3</span>曲情報と書き出し</h2>
+      <div class="meta-grid">
+        <label>タイトル <input type="text" id="meta-title"></label>
+        <label>サブタイトル <input type="text" id="meta-subtitle"></label>
+        <label>BPM <input type="number" id="meta-bpm" min="30" max="400" step="0.001"></label>
+        <label title="小節1の開始時刻（秒）。TJA の OFFSET はこの値の符号を反転したものです">小節1の開始時刻(秒) <input type="number" id="meta-offset" step="0.001"></label>
+        <label>コース
+          <select id="meta-course">
+            <option>Easy</option><option>Normal</option><option>Hard</option><option selected>Oni</option><option>Edit</option>
+          </select>
+        </label>
+        <label>レベル <input type="number" id="meta-level" min="1" max="10"></label>
+        <label>音源ファイル名 (WAVE) <input type="text" id="meta-wave"></label>
+        <label>デモ開始(秒) <input type="number" id="meta-demostart" step="0.1" min="0"></label>
+      </div>
+      <p class="hint">BPM・開始時刻を変えると、音符は「拍の位置」を保ったまま移動します。自動生成の結果を作り直したい場合は「現在の BPM/オフセットで作り直す」を使ってください。</p>
+      <div class="actions">
+        <button class="primary" id="export-tja">TJA を書き出す</button>
+        <label class="button">TJA を読み込む<input type="file" id="import-tja" accept=".tja,.txt" hidden></label>
+        <button id="export-json">プロジェクト保存 (JSON)</button>
+        <label class="button">プロジェクト読込<input type="file" id="import-json" accept=".json" hidden></label>
+        <button class="danger" id="clear-chart">譜面をクリア</button>
+      </div>
+    </section>
+
+    <section class="panel help">
+      <h2>操作方法</h2>
+      <div class="help-grid">
+        <div>
+          <h3>マウス</h3>
+          <ul>
+            <li>レーンをクリック: 選んだ音符を置く（ドラッグで連続配置）</li>
+            <li>同じ種類の音符をクリック: 削除 ／ 違う種類: 置き換え</li>
+            <li>右クリック: 削除</li>
+            <li>連打: ドラッグで長さを指定</li>
+            <li>Shift+ドラッグ: 範囲選択（選択ツールなら通常ドラッグで移動）</li>
+            <li>ルーラー・波形をクリック: 再生位置を移動</li>
+            <li>ホイール: スクロール ／ Ctrl+ホイール: 拡大縮小 ／ 中ボタンドラッグ: スクロール</li>
+          </ul>
+        </div>
+        <div>
+          <h3>キーボード</h3>
+          <ul>
+            <li><kbd>Space</kbd> 再生/停止　<kbd>Home</kbd> 先頭へ</li>
+            <li><kbd>1</kbd>〜<kbd>6</kbd> 音符の種類　<kbd>V</kbd> 選択　<kbd>E</kbd> 消しゴム</li>
+            <li><kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Y</kbd> 元に戻す / やり直す</li>
+            <li><kbd>Ctrl</kbd>+<kbd>A</kbd> / <kbd>C</kbd> / <kbd>V</kbd> 全選択 / コピー / 再生位置に貼り付け</li>
+            <li><kbd>Delete</kbd> 選択を削除　<kbd>←</kbd><kbd>→</kbd> 選択を移動（未選択時は1拍シーク）</li>
+            <li><kbd>R</kbd> 選択のドン⇔カッ反転　<kbd>B</kbd> 大⇔小 切替</li>
+            <li>リアルタイム入力中: <kbd>F</kbd><kbd>J</kbd> ドン、<kbd>D</kbd><kbd>K</kbd> カッ（同時押しで大音符）</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

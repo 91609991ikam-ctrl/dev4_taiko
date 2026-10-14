@@ -1,0 +1,14 @@
+{
+  "name": "taiko-chart-maker",
+  "version": "0.1.0",
+  "description": "音声ファイルから太鼓の達人風の譜面を自動生成・編集できるブラウザ用譜面メーカー",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node scripts/serve.js",
+    "test": "node --test \"tests/**/*.test.js\""
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
